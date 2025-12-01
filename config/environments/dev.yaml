@@ -1,0 +1,70 @@
+environment:
+  name: dev
+  description: Development Environment
+  
+bastion:
+  host: bastion-dev.example.com
+  user: ec2-user
+  key_path: ~/.ssh/bastion-dev.pem
+  port: 22
+
+kubernetes:
+  cluster_name: sas-viya-dev-cluster
+  api_endpoint: https://k8s-api-dev.internal.example.com:443
+  namespace: sas-viya-dev
+  context: sas-viya-dev-context
+  
+tunnels:
+  - name: k8s-api
+    local_port: 6443
+    remote_host: k8s-api-dev.internal.example.com
+    remote_port: 443
+  - name: sas-viya-web
+    local_port: 8080
+    remote_host: sas-viya-dev.internal.example.com
+    remote_port: 443
+  - name: cas-controller
+    local_port: 5570
+    remote_host: cas-dev.internal.example.com
+    remote_port: 5570
+
+sas_components:
+  cas:
+    enabled: true
+    controller_count: 1
+    worker_count: 2
+  microservices:
+    - sas-logon-app
+    - sas-identities
+    - sas-authorization
+    - sas-files
+    - sas-folders
+    - sas-studio-app
+    - sas-compute
+  databases:
+    postgres:
+      enabled: true
+      replicas: 2
+  messaging:
+    rabbitmq:
+      enabled: true
+      replicas: 1
+  cache:
+    redis:
+      enabled: true
+      replicas: 1
+
+test_parameters:
+  timeout: 300
+  retry_count: 3
+  parallel_execution: false
+  fail_fast: true
+  
+monitoring:
+  metrics_enabled: true
+  log_collection: true
+  event_tracking: true
+  alert_thresholds:
+    pod_restart_limit: 5
+    memory_usage_percent: 80
+    cpu_usage_percent: 80

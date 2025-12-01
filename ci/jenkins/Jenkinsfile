@@ -1,0 +1,136 @@
+pipeline {
+    agent {
+        docker {
+            image 'python:3.9-slim'
+            args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
+    
+    environment {
+        ENVIRONMENT = "${params.ENVIRONMENT ?: 'dev'}"
+        NAMESPACE = "${params.NAMESPACE ?: 'sas-viya'}"
+        TEST_TYPE = "${params.TEST_TYPE ?: 'smoke'}"
+        BASTION_CREDENTIALS = credentials('bastion-ssh-key')
+        KUBECONFIG_CREDENTIALS = credentials('kubeconfig')
+    }
+    
+    parameters {
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'prod'], description: 'Target environment')
+        choice(name: 'TEST_TYPE', choices: ['smoke', 'full', 'components'], description: 'Type of test to run')
+        string(name: 'NAMESPACE', defaultValue: 'sas-viya', description: 'Kubernetes namespace')
+        booleanParam(name: 'USE_BASTION', defaultValue: true, description: 'Use bastion host')
+    }
+    
+    stages {
+        stage('Setup') {
+            steps {
+                script {
+                    sh '''
+                        apt-get update && apt-get install -y curl openssh-client netcat-openbsd make
+                        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+                        chmod +x kubectl && mv kubectl /usr/local/bin/
+                        pip install -r requirements.txt
+                    '''
+                }
+            }
+        }
+        
+        stage('Configure Access') {
+            steps {
+                script {
+                    sh '''
+                        mkdir -p ~/.ssh ~/.kube
+                        cp ${BASTION_CREDENTIALS} ~/.ssh/bastion.pem
+                        chmod 600 ~/.ssh/bastion.pem
+                        cp ${KUBECONFIG_CREDENTIALS} ~/.kube/config
+                    '''
+                    
+                    if (params.USE_BASTION) {
+                        sh './scripts/setup/setup-bastion-tunnel.sh ${ENVIRONMENT}'
+                    }
+                }
+            }
+        }
+        
+        stage('Run Tests') {
+            parallel {
+                stage('Kubectl Tests') {
+                    when {
+                        expression { params.TEST_TYPE != 'python-only' }
+                    }
+                    steps {
+                        script {
+                            sh '''
+                                export NAMESPACE=${NAMESPACE}
+                                ./tests/scenarios/${TEST_TYPE}_test.sh ${NAMESPACE}
+                            '''
+                        }
+                    }
+                }
+                
+                stage('Python Tests') {
+                    steps {
+                        script {
+                            sh '''
+                                pytest tests/python/ \
+                                    --namespace=${NAMESPACE} \
+                                    --environment=${ENVIRONMENT} \
+                                    --junit-xml=reports/junit.xml \
+                                    --html=reports/pytest.html \
+                                    --self-contained-html
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Generate Report') {
+            steps {
+                script {
+                    sh './scripts/utils/report-generator.sh html'
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Archive test results
+            junit 'reports/junit.xml'
+            
+            // Archive HTML reports
+            publishHTML target: [
+                allowMissing: false,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: 'reports',
+                reportFiles: 'test_report.html,pytest.html',
+                reportName: 'Test Reports',
+                reportTitles: 'SAS Viya kubectl Tests'
+            ]
+            
+            // Cleanup
+            sh './scripts/teardown/cleanup-tunnels.sh || true'
+            
+            // Archive logs
+            archiveArtifacts artifacts: 'logs/**/*.log', allowEmptyArchive: true
+        }
+        
+        failure {
+            emailext (
+                subject: "SAS Viya Tests Failed: ${env.JOB_NAME} - ${env.BUILD_NUMBER}",
+                body: '''${DEFAULT_CONTENT}
+                
+                Test Type: ${TEST_TYPE}
+                Environment: ${ENVIRONMENT}
+                Namespace: ${NAMESPACE}
+                
+                Check the attached reports for details.
+                ''',
+                to: '${DEFAULT_RECIPIENTS}',
+                attachmentsPattern: 'reports/*.html'
+            )
+        }
+    }
+}

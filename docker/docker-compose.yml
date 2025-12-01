@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  test-runner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: sas-viya-kubectl-tests:latest
+    container_name: sas-viya-tests
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-dev}
+      - NAMESPACE=${NAMESPACE:-sas-viya}
+      - USE_BASTION=${USE_BASTION:-true}
+      - TEST_TYPE=${TEST_TYPE:-smoke}
+      - KUBECONFIG=/root/.kube/config
+    volumes:
+      - ~/.ssh:/root/.ssh:ro
+      - ~/.kube:/root/.kube:ro
+      - ~/.aws:/root/.aws:ro
+      - ../config:/app/config:ro
+      - ../reports:/app/reports
+      - ../logs:/app/logs
+    networks:
+      - test-network
+    command: make test TEST_TYPE=${TEST_TYPE}
+
+  report-server:
+    image: nginx:alpine
+    container_name: test-reports
+    volumes:
+      - ../reports:/usr/share/nginx/html:ro
+    ports:
+      - "8081:80"
+    networks:
+      - test-network
+    profiles:
+      - reports
+
+  bastion-tunnel:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: sas-viya-kubectl-tests:latest
+    container_name: bastion-tunnel
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-dev}
+    volumes:
+      - ~/.ssh:/root/.ssh:ro
+      - ../config:/app/config:ro
+    networks:
+      - test-network
+    profiles:
+      - tunnel
+    command: ./scripts/setup/setup-bastion-tunnel.sh ${ENVIRONMENT}
+    
+networks:
+  test-network:
+    driver: bridge
+
+volumes:
+  test-reports:
+  test-logs:

@@ -1,0 +1,72 @@
+environment:
+  name: prod
+  description: Production Environment
+  
+bastion:
+  host: bastion-prod.example.com
+  user: ec2-user
+  key_path: ~/.ssh/bastion-prod.pem
+  port: 22
+
+kubernetes:
+  cluster_name: sas-viya-prod-cluster
+  api_endpoint: https://k8s-api-prod.internal.example.com:443
+  namespace: sas-viya-prod
+  context: sas-viya-prod-context
+  
+tunnels:
+  - name: k8s-api
+    local_port: 6443
+    remote_host: k8s-api-prod.internal.example.com
+    remote_port: 443
+  - name: sas-viya-web
+    local_port: 8080
+    remote_host: sas-viya-prod.internal.example.com
+    remote_port: 443
+  - name: cas-controller
+    local_port: 5570
+    remote_host: cas-prod.internal.example.com
+    remote_port: 5570
+
+sas_components:
+  cas:
+    enabled: true
+    controller_count: 2
+    worker_count: 5
+  microservices:
+    - sas-logon-app
+    - sas-identities
+    - sas-authorization
+    - sas-files
+    - sas-folders
+    - sas-studio-app
+    - sas-compute
+    - sas-model-manager
+    - sas-visual-analytics
+  databases:
+    postgres:
+      enabled: true
+      replicas: 3
+  messaging:
+    rabbitmq:
+      enabled: true
+      replicas: 3
+  cache:
+    redis:
+      enabled: true
+      replicas: 3
+
+test_parameters:
+  timeout: 900
+  retry_count: 5
+  parallel_execution: true
+  fail_fast: false
+  
+monitoring:
+  metrics_enabled: true
+  log_collection: true
+  event_tracking: true
+  alert_thresholds:
+    pod_restart_limit: 2
+    memory_usage_percent: 90
+    cpu_usage_percent: 90
