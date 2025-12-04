@@ -98,29 +98,59 @@ test_cas_controller() {
     fi
 }
 
-# Test 5: Core Services
 test_core_services() {
-    log_test "[5/8] Checking Core Services"
-    
+    log_test "[5/8] Checking Services in Namespace '${NAMESPACE}'"
+
     if [ "${NAMESPACE_EXISTS}" = false ]; then
         log_warn "SKIPPED - namespace doesn't exist"
         ((SKIPPED_TESTS++))
+        echo ""
         return
     fi
-    
+
+    # Core services required
     local services=("sas-logon-app" "sas-identities" "sas-authorization")
     local found=0
     local total=3
-    
+
+    # ---------------------------------------
+    # 1. LIST ALL SERVICES
+    # ---------------------------------------
+    log_info "All services in namespace ${NAMESPACE}:"
+
+    local all_services
+    all_services=$(kubectl get svc -n "${NAMESPACE}" --no-headers 2>/dev/null | awk '{print $1}')
+
+    if [ -z "$all_services" ]; then
+        log_fail "No services found in namespace"
+        ((FAILED_TESTS++))
+        echo ""
+        return
+    fi
+
+    while read svc; do
+        [[ -z "$svc" ]] && continue
+        log_info "  - ${svc}"
+    done <<< "${all_services}"
+
+    echo ""
+
+    # ---------------------------------------
+    # 2. CHECK CORE SERVICES
+    # ---------------------------------------
+    log_info "Checking required core services:"
     for service in "${services[@]}"; do
-        if kubectl get service "${service}" -n "${NAMESPACE}" &>/dev/null; then
+        if kubectl get service "$service" -n "${NAMESPACE}" &>/dev/null; then
             log_info "  ✓ ${service}"
             ((found++))
         else
             log_warn "  ✗ ${service}"
         fi
     done
-    
+
+    # ---------------------------------------
+    # 3. PASS/FAIL LOGIC
+    # ---------------------------------------
     if [[ ${found} -eq ${total} ]]; then
         log_pass "All core services present (${found}/${total})"
         ((PASSED_TESTS++))
@@ -128,7 +158,10 @@ test_core_services() {
         log_fail "Only ${found}/${total} core services found"
         ((FAILED_TESTS++))
     fi
+
+    echo ""
 }
+
 
 # Test 6: Database
 test_database() {
