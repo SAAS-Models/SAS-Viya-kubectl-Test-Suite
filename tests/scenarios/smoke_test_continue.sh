@@ -32,27 +32,32 @@ test_cluster_connectivity() {
     fi
 }
 
-# Test 2: List available namespaces
 test_list_namespaces() {
     log_test "[2/8] Listing available namespaces"
     
-    local namespaces=$(kubectl get namespaces --no-headers 2>/dev/null | awk '{print $1}')
+    local namespaces
+    namespaces=$(kubectl get namespaces --no-headers 2>/dev/null | awk '{print $1}')
     
-    if [ ! -z "${namespaces}" ]; then
+    if [ -n "${namespaces}" ]; then
         log_info "Found namespaces:"
-        echo "${namespaces}" | while read ns; do
+
+        # FIXED — no pipeline subshell
+        while read ns; do
+            [ -z "$ns" ] && continue
             if [[ "${ns}" == *"sas"* ]] || [[ "${ns}" == *"viya"* ]]; then
                 log_info "  → ${ns} (possible SAS Viya namespace)"
             else
                 log_info "  - ${ns}"
             fi
-        done
+        done <<< "${namespaces}"
+
         ((PASSED_TESTS++))
     else
         log_fail "Cannot list namespaces"
         ((FAILED_TESTS++))
     fi
 }
+
 
 # Test 3: Namespace exists
 test_namespace() {
